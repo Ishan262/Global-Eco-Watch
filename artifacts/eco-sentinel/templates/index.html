@@ -384,6 +384,14 @@
             <input type="text" id="f-name" class="form-input" placeholder="e.g. Maria Santos" required />
           </div>
           <div>
+            <label style="display:block;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">
+              Location
+              <span style="color:#334155;font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px;">(auto-filled from map click)</span>
+            </label>
+            <input type="text" id="f-location" class="form-input" placeholder="Click the map to detect location…" readonly
+              style="background:#1e293b;cursor:default;color:#94a3b8;" />
+          </div>
+          <div>
             <label style="display:block;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Pollution Type</label>
             <select id="f-type" class="form-input" required>
               <option value="" disabled selected>Select type…</option>
@@ -466,6 +474,8 @@
     let queryMarker = null;
     let hotspotMarkers = [];
     let reports = [];
+    let currentLocationName = null;
+    let lastAQIData = null;
 
     // ── Map Init ───────────────────────────────────────────
     const map = L.map('map', {
@@ -491,10 +501,32 @@
     map.on('click', (e) => {
       const clickLat = e.latlng.lat;
       const clickLng = e.latlng.lng;
+      currentLocationName = null;
+
       if (currentMode === 'query') {
+        // Fire AQI fetch and reverse geocode in parallel
         fetchAirQuality(clickLat, clickLng);
+        reverseGeocode(clickLat, clickLng).then(address => {
+          currentLocationName = address;
+          // Update station name in sidebar if result is showing
+          const nameEl = document.getElementById('station-name');
+          if (nameEl) nameEl.textContent = address;
+          // Refresh open popup with human-readable name
+          if (queryMarker && lastAQIData) {
+            const { color, label } = aqiMeta(lastAQIData.aqi);
+            queryMarker.unbindPopup();
+            queryMarker.bindPopup(makeAQIPopup({ ...lastAQIData, locationName: address }, color, label)).openPopup();
+          }
+        });
       } else {
-        selectReportLocation(clickLat, clickLng);
+        // Drop pin immediately then update address async
+        selectReportLocation(clickLat, clickLng, null);
+        reverseGeocode(clickLat, clickLng).then(address => {
+          currentLocationName = address;
+          document.getElementById('selected-coords').textContent = `📍 ${address}`;
+          const locField = document.getElementById('f-location');
+          if (locField) locField.value = address;
+        });
       }
     });
 
@@ -537,6 +569,36 @@
       setTimeout(() => map.invalidateSize(), 50);
     }
 
+    // ── Reverse Geocoding (Nominatim / OpenStreetMap) ─────
+    async function reverseGeocode(lat, lng) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+        const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+        if (!res.ok) throw new Error('Geocode request failed');
+        const data = await res.json();
+        const a = data.address || {};
+        const city    = a.city || a.town || a.village || a.hamlet || a.suburb || a.county || '';
+        const region  = a.state || a.province || '';
+        const country = a.country || '';
+        const parts   = [city, region, country].filter(Boolean);
+        return parts.length > 0 ? parts.join(', ') : `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
+      } catch {
+        return `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
+      }
+    }
+
+    // ── AQI Colour + Label Helper ─────────────────────────
+    function aqiMeta(aqi) {
+      if (aqi === 'N/A' || aqi === undefined) return { color: '#64748b', label: 'Unknown' };
+      const n = parseInt(aqi);
+      if (n <= 50)       return { color: '#10b981', label: 'Good' };
+      if (n <= 100)      return { color: '#f59e0b', label: 'Moderate' };
+      if (n <= 150)      return { color: '#f97316', label: 'Unhealthy (Sensitive)' };
+      if (n <= 200)      return { color: '#ef4444', label: 'Unhealthy' };
+      if (n <= 300)      return { color: '#a855f7', label: 'Very Unhealthy' };
+      return               { color: '#991b1b',  label: 'Hazardous' };
+    }
+
     // ── AQI Fetch ─────────────────────────────────────────
     function fetchAirQuality(lat, lng) {
       // Remove old marker
@@ -555,6 +617,7 @@
             showAQIState('error', data.error);
             return;
           }
+          lastAQIData = data;
           renderAQI(data);
         })
         .catch(err => showAQIState('error', 'Network error: ' + err.message));
@@ -580,25 +643,16 @@
     function renderAQI(data) {
       showAQIState('result');
 
-      document.getElementById('station-name').textContent = data.station || 'Unknown Station';
+      // Show geocoded name if already resolved, otherwise fall back to coordinates
+      document.getElementById('station-name').textContent =
+        currentLocationName || data.station || 'Locating…';
       document.getElementById('station-time').textContent = data.time ? `Updated: ${data.time}` : '';
 
-      const aqi = data.aqi;
+      const { color, label } = aqiMeta(data.aqi);
       const aqiEl = document.getElementById('aqi-value');
       const labelEl = document.getElementById('aqi-label');
-      aqiEl.textContent = aqi !== 'N/A' ? aqi : '—';
+      aqiEl.textContent = (data.aqi !== 'N/A' && data.aqi !== undefined) ? data.aqi : '—';
       aqiEl.className = '';
-
-      let color = '#64748b', label = 'Unknown';
-      if (aqi !== 'N/A') {
-        const n = parseInt(aqi);
-        if (n <= 50)       { color = '#10b981'; label = 'Good'; }
-        else if (n <= 100) { color = '#f59e0b'; label = 'Moderate'; }
-        else if (n <= 150) { color = '#f97316'; label = 'Unhealthy (Sensitive)'; }
-        else if (n <= 200) { color = '#ef4444'; label = 'Unhealthy'; }
-        else if (n <= 300) { color = '#a855f7'; label = 'Very Unhealthy'; }
-        else               { color = '#991b1b'; label = 'Hazardous'; }
-      }
       aqiEl.style.color = color;
       labelEl.style.color = color;
       labelEl.textContent = label;
@@ -611,17 +665,21 @@
       document.getElementById('val-o3').textContent   = fmt(data.o3);
       document.getElementById('val-so2').textContent  = fmt(data.so2);
 
-      // Update query marker popup
+      // Open popup (address updates it once geocode resolves)
       if (queryMarker) {
-        queryMarker.bindPopup(makeAQIPopup(data, color, label)).openPopup();
+        const displayName = currentLocationName || data.station;
+        queryMarker.unbindPopup();
+        queryMarker.bindPopup(makeAQIPopup({ ...data, locationName: displayName }, color, label)).openPopup();
       }
     }
 
     function makeAQIPopup(data, color, label) {
-      return L.popup({ maxWidth: 260, className: '' }).setContent(`
+      const displayName = data.locationName || data.station;
+      return L.popup({ maxWidth: 280, className: '' }).setContent(`
         <div style="padding:16px;font-family:'Inter',sans-serif;">
-          <p style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Air Quality</p>
-          <p style="font-size:13px;color:#f1f5f9;font-weight:600;margin-bottom:12px;">${data.station}</p>
+          <p style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;">Air Quality</p>
+          <p style="font-size:14px;color:#f1f5f9;font-weight:700;margin-bottom:4px;line-height:1.3;">${displayName}</p>
+          <p style="font-size:10px;color:#475569;margin-bottom:10px;font-family:'JetBrains Mono',monospace;">${parseFloat(data.lat).toFixed(4)}°, ${parseFloat(data.lng).toFixed(4)}°</p>
           <div style="display:flex;gap:16px;margin-bottom:10px;">
             <div style="text-align:center;">
               <p style="font-size:10px;color:#475569;margin-bottom:2px;">AQI</p>
@@ -649,16 +707,24 @@
 
     // ── Report Location Select ────────────────────────────
     let reportPinMarker = null;
-    function selectReportLocation(lat, lng) {
+    function selectReportLocation(lat, lng, address) {
       pendingLat = lat; pendingLng = lng;
 
       if (reportPinMarker) map.removeLayer(reportPinMarker);
       const icon = L.divIcon({ className: '', html: '<div class="hotspot-pulse"></div>', iconSize: [16,16], iconAnchor: [8,8] });
       reportPinMarker = L.marker([lat, lng], { icon }).addTo(map);
 
+      // Show immediately with coordinates; geocode will update to address
+      const display = address || `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
       document.getElementById('selected-coords').style.display = 'block';
-      document.getElementById('selected-coords').textContent =
-        `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      document.getElementById('selected-coords').textContent = `📍 ${display}`;
+
+      // Auto-fill location field (shows "Fetching…" until address arrives)
+      const locField = document.getElementById('f-location');
+      if (locField) {
+        locField.value = address || '';
+        if (!address) locField.placeholder = 'Fetching address…';
+      }
     }
 
     // ── Submit Report ─────────────────────────────────────
@@ -692,8 +758,10 @@
           if (data.error) { showToast('Error: ' + data.error, '#ef4444'); return; }
           showToast('✓ Hotspot reported successfully!', '#10b981');
           document.getElementById('report-form').reset();
+          document.getElementById('f-location').value = '';
+          document.getElementById('f-location').placeholder = 'Click the map to detect location…';
           document.getElementById('selected-coords').style.display = 'none';
-          pendingLat = null; pendingLng = null;
+          pendingLat = null; pendingLng = null; currentLocationName = null;
           if (reportPinMarker) { map.removeLayer(reportPinMarker); reportPinMarker = null; }
           loadReports();
         })
