@@ -39,6 +39,10 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Run at module load so gunicorn/any WSGI server initialises the DB before
+# the first request arrives — not only when run as __main__.
+init_db()
+
 
 @app.route("/")
 def index():
@@ -94,68 +98,78 @@ def get_air_data():
 
 @app.route("/data/reports", methods=["GET"])
 def get_reports():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM hotspots ORDER BY created_at DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in rows])
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM hotspots ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/data/reports", methods=["POST"])
 def create_report():
-    data = request.get_json()
+    try:
+        data = request.get_json(silent=True) or {}
 
-    name = (data.get("name") or "").strip()
-    pollution_type = (data.get("pollution_type") or "").strip()
-    description = (data.get("description") or "").strip()
-    lat = data.get("lat")
-    lng = data.get("lng")
+        name = (data.get("name") or "").strip()
+        pollution_type = (data.get("pollution_type") or "").strip()
+        description = (data.get("description") or "").strip()
+        lat = data.get("lat")
+        lng = data.get("lng")
 
-    if not all([name, pollution_type, description, lat, lng]):
-        return jsonify({"error": "All fields are required"}), 400
+        if not all([name, pollution_type, description, lat, lng]):
+            return jsonify({"error": "All fields are required"}), 400
 
-    created_at = datetime.utcnow().isoformat() + "Z"
+        created_at = datetime.utcnow().isoformat() + "Z"
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO hotspots (name, pollution_type, description, lat, lng, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, pollution_type, description, float(lat), float(lng), created_at),
-    )
-    conn.commit()
-    new_id = cursor.lastrowid
-    conn.close()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO hotspots (name, pollution_type, description, lat, lng, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (name, pollution_type, description, float(lat), float(lng), created_at),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
 
-    return jsonify({
-        "id": new_id,
-        "name": name,
-        "pollution_type": pollution_type,
-        "description": description,
-        "lat": lat,
-        "lng": lng,
-        "created_at": created_at,
-    }), 201
+        return jsonify({
+            "id": new_id,
+            "name": name,
+            "pollution_type": pollution_type,
+            "description": description,
+            "lat": lat,
+            "lng": lng,
+            "created_at": created_at,
+        }), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/data/reports/<int:report_id>", methods=["DELETE"])
 def delete_report(report_id):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM hotspots WHERE id = ?", (report_id,))
-    conn.commit()
-    affected = cursor.rowcount
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM hotspots WHERE id = ?", (report_id,))
+        conn.commit()
+        affected = cursor.rowcount
+        conn.close()
 
-    if affected == 0:
-        return jsonify({"error": "Report not found"}), 404
+        if affected == 0:
+            return jsonify({"error": "Report not found"}), 404
 
-    return jsonify({"success": True})
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/export_pdf", methods=["GET"])
 def export_pdf():
+  try:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -333,8 +347,9 @@ def export_pdf():
         as_attachment=True,
         download_name=filename,
     )
+  except Exception as e:
+    return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=PORT, debug=False)
