@@ -15,7 +15,7 @@ kind = "web"
   localPort = 5000
 
   [services.development]
-  run = "PORT=5000 python artifacts/carbon-monitor/app.py"
+  run = "python app.py"
 
   [services.env]
   PORT = "5000"
