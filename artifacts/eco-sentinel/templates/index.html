@@ -290,7 +290,7 @@
                 <span style="font-size:11px;color:#64748b;font-weight:600;">CO</span>
               </div>
               <p id="val-co" style="font-size:20px;font-weight:700;color:#f1f5f9;">—</p>
-              <p style="font-size:10px;color:#475569;margin-top:2px;">ppm index</p>
+              <p style="font-size:10px;color:#475569;margin-top:2px;">µg/m³</p>
             </div>
             <div class="pollutant-card" style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;">
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
@@ -487,13 +487,14 @@
         `${e.latlng.lat.toFixed(4)}°, ${e.latlng.lng.toFixed(4)}°`;
     });
 
-    // Map click handler
+    // Map click handler — explicitly capture e.latlng.lat and e.latlng.lng
     map.on('click', (e) => {
-      const { lat, lng } = e.latlng;
+      const clickLat = e.latlng.lat;
+      const clickLng = e.latlng.lng;
       if (currentMode === 'query') {
-        fetchAirQuality(lat, lng);
+        fetchAirQuality(clickLat, clickLng);
       } else {
-        selectReportLocation(lat, lng);
+        selectReportLocation(clickLat, clickLng);
       }
     });
 
@@ -547,7 +548,7 @@
 
       showAQIState('loading');
 
-      fetch(`/data/air-quality?lat=${lat}&lng=${lng}`)
+      fetch(`/get_air_data?lat=${lat}&lng=${lng}`)
         .then(r => r.json())
         .then(data => {
           if (data.error) {

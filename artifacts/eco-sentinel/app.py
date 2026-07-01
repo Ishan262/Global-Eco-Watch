@@ -12,9 +12,6 @@ CORS(app)
 PORT = int(os.environ.get("PORT", 5001))
 DB_PATH = os.path.join(os.path.dirname(__file__), "hotspots.db")
 
-AQICN_TOKEN = "demo"
-
-
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -38,8 +35,8 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/data/air-quality")
-def air_quality():
+@app.route("/get_air_data")
+def get_air_data():
     lat = request.args.get("lat")
     lng = request.args.get("lng")
 
@@ -47,25 +44,33 @@ def air_quality():
         return jsonify({"error": "Missing lat/lng parameters"}), 400
 
     try:
-        url = f"https://api.waqi.info/feed/geo:{lat};{lng}/?token={AQICN_TOKEN}"
+        url = (
+            "https://air-quality-api.open-meteo.com/v1/air-quality"
+            f"?latitude={lat}&longitude={lng}"
+            "&current=pm2_5,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,pm10,us_aqi"
+            "&timezone=auto"
+        )
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        if data.get("status") != "ok":
-            return jsonify({"error": "Could not fetch data for this location", "raw": data}), 404
+        if "current" not in data:
+            return jsonify({"error": "No air quality data available for this location"}), 404
 
-        iaqi = data["data"].get("iaqi", {})
+        current = data["current"]
+
+        def fmt(val, decimals=1):
+            return round(val, decimals) if val is not None else "N/A"
+
         result = {
-            "station": data["data"].get("city", {}).get("name", "Unknown Station"),
-            "aqi": data["data"].get("aqi", "N/A"),
-            "time": data["data"].get("time", {}).get("s", "N/A"),
-            "co": iaqi.get("co", {}).get("v", "N/A"),
-            "pm25": iaqi.get("pm25", {}).get("v", "N/A"),
-            "pm10": iaqi.get("pm10", {}).get("v", "N/A"),
-            "no2": iaqi.get("no2", {}).get("v", "N/A"),
-            "o3": iaqi.get("o3", {}).get("v", "N/A"),
-            "so2": iaqi.get("so2", {}).get("v", "N/A"),
-            "dominentpol": data["data"].get("dominentpol", "N/A"),
+            "station": f"{float(lat):.4f}°, {float(lng):.4f}°",
+            "aqi": fmt(current.get("us_aqi"), 0),
+            "time": current.get("time", "N/A"),
+            "co": fmt(current.get("carbon_monoxide")),
+            "pm25": fmt(current.get("pm2_5")),
+            "pm10": fmt(current.get("pm10")),
+            "no2": fmt(current.get("nitrogen_dioxide")),
+            "o3": fmt(current.get("ozone")),
+            "so2": fmt(current.get("sulphur_dioxide")),
             "lat": lat,
             "lng": lng,
         }
