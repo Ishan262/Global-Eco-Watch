@@ -1,0 +1,14 @@
+kind = "web"
+  previewPath = "/"
+  title = "EcoSentinel"
+  version = "1.0.0"
+  id = "carbon-monitor"
+
+  [[services]]
+  localPort = 5000
+  name = "EcoSentinel"
+  paths = ["/"]
+
+  [services.development]
+  run = "PORT=5000 python artifacts/carbon-monitor/app.py"
+  
