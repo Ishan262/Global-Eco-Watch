@@ -1,5 +1,7 @@
-Flask==3.0.3
-requests==2.32.3
-reportlab==4.2.2
-gunicorn==22.0.0
+Flask
+requests
+reportlab
+gunicorn
+flask_cors
+
 
