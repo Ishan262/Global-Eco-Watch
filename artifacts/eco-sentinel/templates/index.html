@@ -1072,6 +1072,9 @@
           // Pan and zoom to user's precise location
           map.setView([lat, lng], 14);
 
+          // Immediately fire AQI fetch + dashboard update (identical to a map click)
+          fetchAirQuality(lat, lng);
+
           // Remove old user marker if present
           if (userLocationMarker) map.removeLayer(userLocationMarker);
 
@@ -1095,8 +1098,11 @@
             `))
             .openPopup();
 
-          // Reverse geocode and update popup
+          // Reverse geocode → update popup + pre-fill Report Hotspot address field
           reverseGeocode(lat, lng).then(address => {
+            currentLocationName = address;
+
+            // Update the popup with the resolved address
             if (userLocationMarker) {
               userLocationMarker.unbindPopup();
               userLocationMarker
@@ -1110,6 +1116,10 @@
                 `))
                 .openPopup();
             }
+
+            // Pre-fill the Report Hotspot location field with the human-readable address
+            const locField = document.getElementById('f-location');
+            if (locField) locField.value = address;
           });
 
           lbl.textContent = 'Find My Location';
