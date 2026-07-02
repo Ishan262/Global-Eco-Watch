@@ -23,7 +23,7 @@ PORT = "8080"
 [services.production]
 
 [services.production.run]
-args = ["python", "app.py"]
+args = ["python", "artifacts/eco-sentinel/app.py"]
 
 [services.production.run.env]
 PORT = "8080"
