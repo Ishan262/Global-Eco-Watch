@@ -3,7 +3,6 @@
 A production-ready Full-Stack Civic Tech platform engineered to bridge the gap between crowd-sourced environmental datasets and localized municipal accountability.
 
 🚀 **Live Deployment Link**: https://global-eco-watchin.onrender.com/
-🎯 **Project Walkthrough Video**: [Insert your Loom/YouTube Link Here]
 
 ---
 
