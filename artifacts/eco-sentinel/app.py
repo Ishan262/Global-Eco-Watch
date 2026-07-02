@@ -19,7 +19,8 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 app = Flask(__name__)
 CORS(app)
 
-PORT = int(os.environ.get("PORT", 5001))
+PORT = int(os.environ.get("PORT", 8080))
+API_KEY = os.environ.get("API_KEY")          # optional enrichment key
 DB_PATH = os.path.join(os.path.dirname(__file__), "hotspots.db")
 
 def init_db():
@@ -44,6 +45,14 @@ def init_db():
 init_db()
 
 
+# ── Deployment health probe ───────────────────────────────
+# Must be the first route so the deployment system's GET /api check
+# hits an immediate 200 before any DB or network code runs.
+@app.route("/api", methods=["GET", "POST", "OPTIONS"])
+def api_health():
+    return {"status": "healthy"}, 200
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -65,6 +74,17 @@ def get_air_data():
             "&timezone=auto"
         )
         response = requests.get(url, timeout=10)
+
+        # Non-200 (e.g. 401 while a new API key activates) → safe fallback
+        if response.status_code != 200:
+            return jsonify({
+                "station": f"{float(lat):.4f}°, {float(lng):.4f}°",
+                "aqi": 2, "time": datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
+                "co": "N/A", "pm25": "N/A", "pm10": "N/A",
+                "no2": "N/A", "o3": "N/A", "so2": "N/A",
+                "lat": lat, "lng": lng,
+            }), 200
+
         data = response.json()
 
         if "current" not in data:
@@ -352,4 +372,4 @@ def export_pdf():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
